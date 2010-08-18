@@ -8,8 +8,9 @@ void f1()
 
     printf("name = ?\n");
     gets(nom);
-    printf("name is %s\n", nom);
-
+//    printf("name is %s\n", nom);
+	getchar();
+	sleep(120);
 }
 
 int main(void)

