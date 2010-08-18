@@ -2,7 +2,7 @@
 
 
 
-int main(void)
+void f1()
 {
     char nom[12];
 
@@ -10,5 +10,10 @@ int main(void)
     gets(nom);
     printf("name is %s\n", nom);
 
+}
+
+int main(void)
+{
+    f1();
     return 0;
 }
