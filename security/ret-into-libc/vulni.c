@@ -2,15 +2,13 @@
 
 
 
-void f1()
+void f1(void)
 {
     char nom[12];
+    int x;
 
     printf("name = ?\n");
     gets(nom);
-//    printf("name is %s\n", nom);
-	getchar();
-	sleep(120);
 }
 
 int main(void)

@@ -1,10 +1,11 @@
-lib:
-	$(CC) -fpic elfreader.c -o libelfreader.so -shared -ldl -Wextra -Wall -W 
-	#$(CC) -fpic elfreader.c -o libelfreader.so -shared -ldl -Wextra -Wall -W -ggdb
 
-all: lib
-	#$(CC) launcher.c -L. -lelfreader -o launcher -ggdb
-	$(CC) launcher.c -L. -lelfreader -o launcher 
+vulni:
+	gcc vulni.c -o vulni -ggdb
+
+loader:
+	gcc loader.c -o loader -ggdb 
 
 clean:
-	rm -f *.o *.so test *~
+	rm -f loader vulni core
+
+all: clean vulni loader
