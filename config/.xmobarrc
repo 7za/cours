@@ -1,0 +1,15 @@
+Config { font = "xft:Mono-7.5"
+        , bgColor = "black"
+        , fgColor = "grey"
+        , position = Top
+        , lowerOnStart = True
+        , commands = [ Run Cpu ["-L","3","-H","50","--normal","green","--high","red"] 10
+        , Run Memory ["-t","Mem: <usedratio>%"] 10
+        , Run Date "%a %b %_d %H:%M" "date" 10
+        , Run StdinReader
+        , Run Com "bash" ["-c", "mpc | grep -B1 playing | head -1 | cut -c-100"] "mpc" 15
+        ]
+        , sepChar = "%"
+        , alignSep = "}{"
+        , template = "%StdinReader% }{ %mpc% | %cpu% | %memory% | <fc=#ee9a00>%date%</fc>"
+}
