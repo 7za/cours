@@ -1,18 +1,17 @@
 #include <stdio.h>
 
-
-
 void f1(void)
 {
-    char nom[12];
-    int x;
+	char nom[12];
+	int x;
 
-    printf("name = ?\n");
-    gets(nom);
+	printf("name = ?\n");
+	gets(nom);
 }
 
 int main(void)
 {
-    f1();
-    return 0;
+	f1();
+	puts("end of file");
+	return 0;
 }
